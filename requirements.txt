@@ -1,0 +1,8 @@
+tweepy==4.14.0
+openai==0.27.0
+python-telegram-bot==20.0
+python-dotenv==1.0.0
+
+anchorpy==1.0.0        # клиент Anchor для Python
+solana==0.26.0         # Solana RPC + Keypair
+spl-token              # для get_associated_token_address
