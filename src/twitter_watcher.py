@@ -3,75 +3,75 @@
 import os
 import asyncio
 import logging
-from typing import AsyncGenerator, List
-import feedparser
+from typing import AsyncGenerator, Dict, List
+
+import tweepy
+
 
 class TwitterWatcher:
     """
-    Асинхронный генератор новых твитов через twitrss.me.
-    Каждые poll_interval секунд дергаем RSS и отдаём новые entry.
+    Асинхронный генератор новых твитов через Twitter API v2.
     """
 
-    def __init__(self, poll_interval: int = 60):
+    def __init__(
+        self,
+        bearer_token: str = None,
+        poll_interval: int = 60,
+        max_results: int = 5,
+    ):
+        # Читаем параметры
+        token = bearer_token or os.getenv("TWITTER_BEARER_TOKEN")
+        if not token:
+            raise ValueError("Не задан TWITTER_BEARER_TOKEN")
+        self.client = tweepy.Client(bearer_token=token, wait_on_rate_limit=True)
+
         raw = os.getenv("WATCH_TWITTER_USERS", "")
         self.usernames: List[str] = [u.strip() for u in raw.split(",") if u.strip()]
         if not self.usernames:
-            raise ValueError("Задайте WATCH_TWITTER_USERS в .env")
+            raise ValueError("Нужно указать хотя бы один WATCH_TWITTER_USERS")
+
+        # Получаем ID пользователей
+        self.user_ids: Dict[str, int] = {}
+        for username in self.usernames:
+            user = self.client.get_user(username=username)
+            if not user.data:
+                raise RuntimeError(f"Не удалось найти пользователя @{username}")
+            self.user_ids[username] = user.data.id
 
         self.poll_interval = poll_interval
-        # для каждого username храним уже виденные GUID
-        self.seen_ids = {u: set() for u in self.usernames}
+        self.max_results   = max_results
+        # для каждого username храним последний seen tweet ID
+        self.since_id: Dict[str, int] = {u: None for u in self.usernames}
 
     async def stream_tweets(self) -> AsyncGenerator[dict, None]:
         """
-        Каждые poll_interval секунд дергаем RSS twitrss.me
-        и отдаём новые записи.
+        Каждые poll_interval секунд опрашиваем get_users_tweets
+        и отдаём только новые твиты.
         """
         while True:
-            for username in self.usernames:
+            for username, uid in self.user_ids.items():
+                last_id = self.since_id[username]
                 try:
-                    new_entries = await asyncio.to_thread(self._fetch_rss, username)
+                    resp = self.client.get_users_tweets(
+                        id=uid,
+                        since_id=last_id,
+                        max_results=self.max_results,
+                        tweet_fields=["created_at", "text"],
+                    )
+                    tweets = resp.data or []
                 except Exception as e:
-                    logging.error(f"RSS error for {username}: {e}")
+                    logging.error(f"Error fetching tweets for @{username}: {e}")
                     continue
 
-                for entry in new_entries:
+                # Сортируем по возрастанию ID (или created_at)
+                tweets_sorted = sorted(tweets, key=lambda t: t.id)
+                for tweet in tweets_sorted:
+                    # обновляем since_id сразу, чтобы не дублировать
+                    self.since_id[username] = tweet.id
                     yield {
-                        "id":               getattr(entry, "id", entry.link),
-                        "text":             entry.title,
-                        "author_username":  username
+                        "id":               tweet.id,
+                        "text":             tweet.text,
+                        "author_username":  username,
                     }
 
             await asyncio.sleep(self.poll_interval)
-
-    def _fetch_rss(self, username: str):
-        """
-        Возвращает список feedparser.Entry новых твитов для username.
-        Если feed.bozo==True, но есть записи — просто логируем и продолжаем.
-        Если записей нет — кидаем ошибку.
-        """
-        url = f"https://twitrss.me/twitter_user_to_rss/?user={username}"
-        feed = feedparser.parse(
-            url,
-            request_headers={"User-Agent": "Mozilla/5.0"}
-        )
-
-        if feed.bozo:
-            logging.warning(f"[RSS bozo] for {username}: {feed.bozo_exception}")
-
-        entries = feed.entries or []
-        if not entries:
-            # действительно пусто — это уже критично
-            raise RuntimeError(f"Empty RSS for {username}")
-
-        new_entries = []
-        for entry in entries:
-            entry_id = getattr(entry, "id", entry.link)
-            if entry_id in self.seen_ids[username]:
-                continue
-            self.seen_ids[username].add(entry_id)
-            new_entries.append(entry)
-
-        new_entries.sort(key=lambda e: e.published_parsed)
-        logging.info(f"[RSS fetch for {username}]: {len(new_entries)} new")
-        return new_entries
