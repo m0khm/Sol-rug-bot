@@ -4,14 +4,14 @@ import os
 import json
 from pathlib import Path
 
-# ── PATCH для httpx.AsyncClient proxy → proxies (как ранее)
+# ── PATCH для httpx.AsyncClient proxy → proxies
 import httpx
-_orig_ac_init = httpx.AsyncClient.__init__
-def _patched_ac_init(self, *args, proxy=None, **kwargs):
+_orig = httpx.AsyncClient.__init__
+def _patch(self, *args, proxy=None, **kwargs):
     if proxy is not None:
         kwargs["proxies"] = proxy
-    return _orig_ac_init(self, *args, **kwargs)
-httpx.AsyncClient.__init__ = _patched_ac_init
+    return _orig(self, *args, **kwargs)
+httpx.AsyncClient.__init__ = _patch
 # ── END PATCH
 
 from base58 import b58decode
@@ -22,13 +22,7 @@ from solana.rpc.commitment import Confirmed
 from spl.token.instructions import get_associated_token_address
 from anchorpy import Program, Provider, Wallet, Context, Idl
 
-
 class PumpClient:
-    """
-    Клиент on-chain-программы Pump.fun на Solana.
-    Загружает Keypair из SOLANA_SECRET_KEY (Base58) или из JSON-файла.
-    """
-
     PROGRAM_ID = PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
     MPL_TOKEN_METADATA = PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
     METADATA_SEED = b"metadata"
@@ -37,55 +31,45 @@ class PumpClient:
     def __init__(self):
         rpc_url = os.getenv("SOLANA_RPC_ENDPOINT")
         if not rpc_url:
-            raise ValueError("SOLANA_RPC_ENDPOINT is not set in .env")
+            raise ValueError("SOLANA_RPC_ENDPOINT не задан в .env")
 
         secret_b58 = os.getenv("SOLANA_SECRET_KEY")
         if secret_b58:
-            secret_bytes = b58decode(secret_b58)
-            self.keypair = Keypair.from_secret_key(secret_bytes)
+            secret = b58decode(secret_b58)
+            self.keypair = Keypair.from_secret_key(secret)
         else:
             path = os.getenv("SOLANA_KEYPAIR_PATH")
-            if not path:
-                raise ValueError("Provide SOLANA_SECRET_KEY or SOLANA_KEYPAIR_PATH")
             data = json.loads(Path(path).read_text())
             self.keypair = Keypair.from_secret_key(bytes(data))
 
-        # Создаём соединение и провайдера
         self.connection = AsyncClient(rpc_url, commitment=Confirmed)
         self.wallet     = Wallet(self.keypair)
         self.provider   = Provider(self.connection, self.wallet)
 
-        # Загружаем и парсим IDL в объект Idl
         idl_path = Path("src/pump_idl.json")
-        if not idl_path.exists():
-            raise FileNotFoundError("pump_idl.json not found in src/")
         idl_dict = json.loads(idl_path.read_text())
-        idl = Idl.from_json(idl_dict)              # ← здесь важно
+        idl = Idl.from_json(idl_dict)
         self.program = Program(idl, self.PROGRAM_ID, self.provider)
 
     async def create_token(self, name: str, symbol: str, uri: str) -> dict:
         mint_kp = Keypair()
-
         metadata_pda, _ = PublicKey.find_program_address(
             [self.METADATA_SEED, bytes(self.MPL_TOKEN_METADATA), bytes(mint_kp.public_key)],
-            self.MPL_TOKEN_METADATA,
+            self.MPL_TOKEN_METADATA
         )
         bonding_pda, _ = PublicKey.find_program_address(
             [self.BONDING_SEED, bytes(mint_kp.public_key)], self.PROGRAM_ID
         )
-        assoc_bonding = get_associated_token_address(mint_kp.public_key, bonding_pda)
+        assoc = get_associated_token_address(mint_kp.public_key, bonding_pda)
 
-        tx_sig = await self.program.rpc["create"](
-            name,
-            symbol,
-            uri,
-            self.keypair.public_key,
+        tx = await self.program.rpc["create"](
+            name, symbol, uri, self.keypair.public_key,
             ctx=Context(
                 accounts={
                     "mint":                   mint_kp.public_key,
                     "mintAuthority":          self.keypair.public_key,
                     "bondingCurve":           bonding_pda,
-                    "associatedBondingCurve": assoc_bonding,
+                    "associatedBondingCurve": assoc,
                     "global":                 self.provider.wallet.public_key,
                     "mplTokenMetadata":       self.MPL_TOKEN_METADATA,
                     "metadata":               metadata_pda,
@@ -100,10 +84,5 @@ class PumpClient:
                 signers=[mint_kp],
             ),
         )
-
-        await self.connection.confirm_transaction(tx_sig, commitment=Confirmed)
-        return {
-            "mint":          str(mint_kp.public_key),
-            "bonding_curve": str(bonding_pda),
-            "tx":            tx_sig,
-        }
+        await self.connection.confirm_transaction(tx, commitment=Confirmed)
+        return {"mint": str(mint_kp.public_key), "bonding_curve": str(bonding_pda), "tx": tx}
