@@ -67,6 +67,7 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s"
     )
+    logging.getLogger("snscrape").setLevel(logging.INFO)
     load_dotenv()
 
     # Интервал опроса твитов через snscrape (в секундах)
