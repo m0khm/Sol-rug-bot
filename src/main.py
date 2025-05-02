@@ -7,7 +7,7 @@ import json
 import base64
 
 from dotenv import load_dotenv
-from twitter_watcher import TwitterWatcher   # теперь юзаем v1.1-вариант
++from twitter_watcher import TwitterWatcher  # snscrape-based
 from ai_summarizer import AISummarizer
 from ai_image_generator import AIImageGenerator
 from ticker_generator import generate_ticker
@@ -66,7 +66,7 @@ async def main():
     poll_interval = int(os.getenv("TWEET_POLL_INTERVAL", "60"))
 
     # Инициализируем watcher без bearer_token
-    watcher    = TwitterWatcher(poll_interval=poll_interval)
+    watcher = TwitterWatcher(poll_interval=int(os.getenv("TWEET_POLL_INTERVAL", "60")))
 
     summarizer = AISummarizer(os.getenv("OPENAI_API_KEY"))
     img_gen    = AIImageGenerator(os.getenv("OPENAI_API_KEY"))
