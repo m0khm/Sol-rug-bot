@@ -19,13 +19,18 @@ async def handle_tweet(tweet, summarizer, img_gen, pump, notifier):
     url  = f"https://twitter.com/{tweet['author_username']}/status/{tweet['id']}"
     logging.info(f"Новый твит: {url}")
 
-    summary   = await summarizer.summarize(text)
-    image_url = (await img_gen.generate(summary))[0]
-    logging.info(f"Картинка: {image_url}")
+    # 1) Сжимаем текст
+    summary = await summarizer.summarize(text)
 
+    # 2) Генерируем картинку
+    image_url = (await img_gen.generate(summary))[0]
+    logging.info(f"Сгенерирована картинка: {image_url}")
+
+    # 3) Генерируем тикер и имя токена
     ticker = generate_ticker(summary)
     name   = summary.title()
 
+    # 4) Формируем метаданные и кодируем их в data URI
     metadata = {
         "name":         name,
         "symbol":       ticker,
@@ -33,37 +38,42 @@ async def handle_tweet(tweet, summarizer, img_gen, pump, notifier):
         "external_url": url,
         "image":        image_url
     }
-    b64 = base64.b64encode(json.dumps(metadata).encode()).decode()
-    uri = f"data:application/json;base64,{b64}"
+    md_b64 = base64.b64encode(json.dumps(metadata).encode()).decode()
+    metadata_uri = f"data:application/json;base64,{md_b64}"
 
-    result = await pump.create_token(name=name, symbol=ticker, uri=uri)
-    logging.info(f"Создан токен: {result}")
+    # 5) Создаём токен on-chain через Pump.fun
+    result = await pump.create_token(name=name, symbol=ticker, uri=metadata_uri)
+    logging.info(f"Токен создан: {result}")
 
+    # 6) Уведомляем в Telegram
     notifier.notify(
         text=(
-            f"✅ Токен *{name}* (`${ticker}`)\n"
-            f"[Твит]({url}) • [Картинка]({image_url})\n"
+            f"✅ Создан токен *{name}* (`${ticker}`)\n"
+            f"[▶️ Твит]({url})  [🖼️ Картинка]({image_url})\n"
             f"Tx: https://solscan.io/tx/{result['tx']}"
         ),
         parse_mode="Markdown"
     )
 
 async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
     load_dotenv()
 
-    # Интервал опроса в секундах (по умолчанию 60)
-    interval = int(os.getenv("TWEET_POLL_INTERVAL", "60"))
+    # Параметры
+    poll_interval = int(os.getenv("TWEET_POLL_INTERVAL", "60"))
 
-    watcher    = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"), poll_interval=interval)
+    # Инициализация компонентов
+    watcher    = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"), poll_interval=poll_interval)
     summarizer = AISummarizer(os.getenv("OPENAI_API_KEY"))
     img_gen    = AIImageGenerator(os.getenv("OPENAI_API_KEY"))
     pump       = PumpClient()
-
-    chat_ids   = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS","").split(",") if cid.strip()]
+    chat_ids   = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS", "").split(",") if cid.strip()]
     notifier   = TelegramNotifier(os.getenv("TELEGRAM_BOT_TOKEN"), chat_ids)
 
-    # Асинхронно обрабатываем поступающие из poll_tweets твиты
+    # Обрабатываем новые твиты
     async for tweet in watcher.stream_tweets():
         asyncio.create_task(handle_tweet(tweet, summarizer, img_gen, pump, notifier))
 
