@@ -3,11 +3,10 @@
 import os
 import openai
 
-
 class AIImageGenerator:
     """
-    Генерирует n изображений размера size через Images API (DALL·E).
-    Параметры берутся из .env (IMAGE_COUNT, IMAGE_SIZE).
+    Генерирует изображения по промпту через DALL·E.
+    Параметры n, size берутся из .env.
     """
 
     def __init__(self, api_key: str):
@@ -18,3 +17,4 @@ class AIImageGenerator:
     async def generate(self, prompt: str) -> list[str]:
         resp = await openai.Image.acreate(prompt=prompt, n=self.n, size=self.size)
         return [item["url"] for item in resp["data"]]
+
