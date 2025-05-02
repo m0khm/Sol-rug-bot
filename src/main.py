@@ -1,5 +1,7 @@
 # src/main.py
 
+# src/main.py
+
 import os
 import asyncio
 import logging
@@ -52,24 +54,18 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     load_dotenv()
 
-    # Настройка
-    usernames = os.getenv("WATCH_TWITTER_USERS", "").split(",")
-    watcher   = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"), usernames)
+    # Инициализация watcher теперь без передачи usernames
+    watcher   = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"))
+
     summarizer= AISummarizer(os.getenv("OPENAI_API_KEY"))
     img_gen   = AIImageGenerator(os.getenv("OPENAI_API_KEY"))
     pump      = PumpClient()
-    chat_ids  = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS","").split(",") if cid.strip()]
+
+    chat_ids  = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS", "").split(",") if cid.strip()]
     notifier  = TelegramNotifier(os.getenv("TELEGRAM_BOT_TOKEN"), chat_ids)
 
-    # Stream loop
     async for tweet in watcher.stream_tweets():
         asyncio.create_task(handle_tweet(tweet, summarizer, img_gen, pump, notifier))
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
