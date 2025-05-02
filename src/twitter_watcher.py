@@ -1,93 +1,75 @@
 # src/twitter_watcher.py
 
 import os
-import asyncio
+import time
 import logging
+import asyncio
 from typing import AsyncGenerator, Dict
+
 import tweepy
-from tweepy.errors import TooManyRequests
+from tweepy import OAuth1UserHandler, API
 
 class TwitterWatcher:
     """
-    Async-генератор новых твитов от нескольких пользователей,
-    объединяя их в один запрос search_recent_tweets и
-    корректно обрабатывая rate limits.
+    Async-генератор твитов нескольких пользователей через v1.1 user_timeline,
+    обходя ограничения бесплатного v2.
     """
 
-    def __init__(
-        self,
-        bearer_token: str,
-        poll_interval: int = 60,
-        max_results: int = 100
-    ):
-        self.client = tweepy.Client(bearer_token=bearer_token)
+    def __init__(self, poll_interval: int = 60):
+        # 1) OAuth1 авторизация (v1.1)
+        auth = OAuth1UserHandler(
+            os.getenv("TWITTER_API_KEY"),
+            os.getenv("TWITTER_API_SECRET"),
+            os.getenv("TWITTER_ACCESS_TOKEN"),
+            os.getenv("TWITTER_ACCESS_SECRET"),
+        )
+        self.api = API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
 
-        # 1) Читаем из .env два списка: WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS
+        # 2) Список имён и их ID (screen_name и numeric ID)
         raw_users = os.getenv("WATCH_TWITTER_USERS", "")
         raw_ids   = os.getenv("WATCH_TWITTER_USER_IDS", "")
         self.usernames = [u.strip() for u in raw_users.split(",") if u.strip()]
         self.user_ids   = [i.strip() for i in raw_ids.split(",")   if i.strip()]
 
-        if not self.user_ids or len(self.user_ids) != len(self.usernames):
-            raise ValueError(
-                "WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS должны быть заданы и одинаковой длины"
-            )
+        if len(self.usernames) != len(self.user_ids) or not self.user_ids:
+            raise ValueError("WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS должны совпадать и быть непустыми")
 
-        # 2) Создаём общую строку запроса и маппинг id→username
-        self.query = " OR ".join(f"from:{uid}" for uid in self.user_ids)
-        self.id_to_username: Dict[str,str] = dict(zip(self.user_ids, self.usernames))
+        # 3) since_id для каждого пользователя — чтобы не получать старые твиты
+        self.since_ids: Dict[str,int] = {uid: None for uid in self.user_ids}
 
-        # 3) Параметры poll и max_results
+        # 4) Интервал между опросами
         self.poll_interval = poll_interval
-        self.max_results   = max_results
-
-        # 4) Храним since_id для всего запроса
-        self.since_id: str | None = None
 
     async def stream_tweets(self) -> AsyncGenerator[Dict, None]:
         """
-        Каждые poll_interval секунд делает один запрос к search_recent_tweets,
-        отдаёт новые твиты по одному в хронологическом порядке.
-        При rate-limit ждёт до x-rate-limit-reset.
+        Каждые poll_interval секунд опрашивает /1.1/statuses/user_timeline
+        для каждого screen_name, выдаёт только новые твиты.
         """
         while True:
-            try:
-                # Делаем синхронный вызов API в pool потоков
-                resp = await asyncio.to_thread(
-                    self.client.search_recent_tweets,
-                    query=self.query,
-                    since_id=self.since_id,
-                    tweet_fields=["author_id", "id", "text"],
-                    max_results=self.max_results
-                )
-            except TooManyRequests as e:
-                import time
-                # UNIX timestamp сброса лимита или fallback на now+poll_interval
-                reset_ts = int(e.response.headers.get(
-                    "x-rate-limit-reset", time.time() + self.poll_interval
-                ))
-                # время ожидания (мин. poll_interval)
-                wait = max(reset_ts - time.time(), self.poll_interval)
-                logging.warning(
-                    f"Rate limit hit, sleeping {wait:.0f}s until "
-                    f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(reset_ts))}"
-                )
-                await asyncio.sleep(wait)
-                continue
+            for uname, uid in zip(self.usernames, self.user_ids):
+                try:
+                    # синхронный вызов в thread pool
+                    timeline = await asyncio.to_thread(
+                        self.api.user_timeline,
+                        screen_name=uname,
+                        since_id=self.since_ids[uid],
+                        tweet_mode="extended",
+                        count=10
+                    )
+                except Exception as e:
+                    logging.warning(f"Ошибка user_timeline для {uname}: {e}")
+                    continue
 
-            tweets = resp.data or []
-            # Сортируем по возрастанию ID
-            tweets.sort(key=lambda t: t.id)
+                # reverse, чтобы выдавать от старых к свежим
+                for status in reversed(timeline):
+                    # full_text для твитов длиной >280 символов
+                    text = getattr(status, "full_text", status.text)
+                    self.since_ids[uid] = max(self.since_ids[uid] or 0, status.id)
+                    yield {
+                        "id": status.id,
+                        "text": text,
+                        "author_username": uname
+                    }
 
-            for t in tweets:
-                # Обновляем since_id
-                if self.since_id is None or t.id > int(self.since_id):
-                    self.since_id = str(t.id)
-                yield {
-                    "id":               t.id,
-                    "text":             t.text,
-                    "author_username":  self.id_to_username.get(str(t.author_id), str(t.author_id))
-                }
-
-            # Ждём перед следующим опросом
+            # ждём прежде чем опрашивать всех снова
             await asyncio.sleep(self.poll_interval)
