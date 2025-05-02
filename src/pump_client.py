@@ -4,12 +4,11 @@ import os
 import json
 from pathlib import Path
 
-# ── PATCH: залатать httpx.AsyncClient, чтобы принимал proxy
+# ── PATCH для httpx.AsyncClient proxy → proxies (как ранее)
 import httpx
 _orig_ac_init = httpx.AsyncClient.__init__
 def _patched_ac_init(self, *args, proxy=None, **kwargs):
     if proxy is not None:
-        # httpx теперь ожидает аргумент proxies, а не proxy
         kwargs["proxies"] = proxy
     return _orig_ac_init(self, *args, **kwargs)
 httpx.AsyncClient.__init__ = _patched_ac_init
@@ -21,12 +20,12 @@ from solana.keypair import Keypair
 from solana.publickey import PublicKey
 from solana.rpc.commitment import Confirmed
 from spl.token.instructions import get_associated_token_address
-from anchorpy import Program, Provider, Wallet, Context
+from anchorpy import Program, Provider, Wallet, Context, Idl
 
 
 class PumpClient:
     """
-    Клиент для on-chain программы Pump.fun на Solana.
+    Клиент on-chain-программы Pump.fun на Solana.
     Загружает Keypair из SOLANA_SECRET_KEY (Base58) или из JSON-файла.
     """
 
@@ -38,7 +37,7 @@ class PumpClient:
     def __init__(self):
         rpc_url = os.getenv("SOLANA_RPC_ENDPOINT")
         if not rpc_url:
-            raise ValueError("SOLANA_RPC_ENDPOINT is not set")
+            raise ValueError("SOLANA_RPC_ENDPOINT is not set in .env")
 
         secret_b58 = os.getenv("SOLANA_SECRET_KEY")
         if secret_b58:
@@ -51,15 +50,17 @@ class PumpClient:
             data = json.loads(Path(path).read_text())
             self.keypair = Keypair.from_secret_key(bytes(data))
 
-        # благодаря патчу в начале теперь не упадёт на proxy
+        # Создаём соединение и провайдера
         self.connection = AsyncClient(rpc_url, commitment=Confirmed)
         self.wallet     = Wallet(self.keypair)
         self.provider   = Provider(self.connection, self.wallet)
 
+        # Загружаем и парсим IDL в объект Idl
         idl_path = Path("src/pump_idl.json")
         if not idl_path.exists():
-            raise FileNotFoundError("pump_idl.json not found")
-        idl = json.loads(idl_path.read_text())
+            raise FileNotFoundError("pump_idl.json not found in src/")
+        idl_dict = json.loads(idl_path.read_text())
+        idl = Idl.from_json(idl_dict)              # ← здесь важно
         self.program = Program(idl, self.PROGRAM_ID, self.provider)
 
     async def create_token(self, name: str, symbol: str, uri: str) -> dict:
