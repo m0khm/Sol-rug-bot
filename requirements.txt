@@ -4,5 +4,4 @@ python-telegram-bot==20.0
 python-dotenv==1.0.0
 anchorpy==0.21.0
 solana==0.26.0
-spl-token
 base58>=2.0.1
