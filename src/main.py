@@ -7,7 +7,7 @@ import json
 import base64
 
 from dotenv import load_dotenv
-from twitter_watcher import TwitterWatcher
+from twitter_watcher import TwitterWatcher   # теперь юзаем v1.1-вариант
 from ai_summarizer import AISummarizer
 from ai_image_generator import AIImageGenerator
 from ticker_generator import generate_ticker
@@ -62,18 +62,19 @@ async def main():
     )
     load_dotenv()
 
-    # Параметры
+    # Интервал опроса из .env (в секундах)
     poll_interval = int(os.getenv("TWEET_POLL_INTERVAL", "60"))
 
-    # Инициализация компонентов
-    watcher    = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"), poll_interval=poll_interval)
+    # Инициализируем watcher без bearer_token
+    watcher    = TwitterWatcher(poll_interval=poll_interval)
+
     summarizer = AISummarizer(os.getenv("OPENAI_API_KEY"))
     img_gen    = AIImageGenerator(os.getenv("OPENAI_API_KEY"))
     pump       = PumpClient()
     chat_ids   = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS", "").split(",") if cid.strip()]
     notifier   = TelegramNotifier(os.getenv("TELEGRAM_BOT_TOKEN"), chat_ids)
 
-    # Обрабатываем новые твиты
+    # Асинхронно обрабатываем новые твиты
     async for tweet in watcher.stream_tweets():
         asyncio.create_task(handle_tweet(tweet, summarizer, img_gen, pump, notifier))
 
