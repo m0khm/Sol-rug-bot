@@ -5,14 +5,21 @@ class AISummarizer:
         openai.api_key = api_key
 
     def summarize(self, text: str, max_words: int = 3) -> str:
-        prompt = (
-            f"Сократи этот текст до {max_words} ключевых слов:\n\n\"{text}\""
+        """
+        Сжимает текст до max_words ключевых слов,
+        используя ChatCompletion с моделью o4-mini.
+        """
+        resp = openai.ChatCompletion.create(
+            model="o4-mini",
+            messages=[
+                {"role": "system", "content": "You are a concise summarizer."},
+                {
+                    "role": "user",
+                    "content": f"Сократи этот текст до {max_words} ключевых слов:\n\n\"{text}\""
+                }
+            ],
+            temperature=0.5,
+            max_tokens=20
         )
-        resp = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=prompt,
-            max_tokens=20,
-            temperature=0.5
-        )
-        summary = resp.choices[0].text.strip()
+        summary = resp.choices[0].message.content.strip()
         return summary
