@@ -2,11 +2,9 @@
 
 import openai
 
-
 class AISummarizer:
     """
-    Сокращает полученный текст до нескольких ключевых слов
-    с помощью ChatCompletion (модель o4‑mini).
+    Сокращает текст до 3 ключевых слов с помощью o4-mini.
     """
 
     def __init__(self, api_key: str, model: str = "o4-mini"):
@@ -20,10 +18,11 @@ class AISummarizer:
                 {"role": "system", "content": "You are a concise summarizer."},
                 {
                     "role": "user",
-                    "content": f"Сократи этот текст до {max_words} ключевых слов:\n\n\"{text.strip()}\"",
-                },
+                    "content": f"Сократи этот текст до {max_words} ключевых слов:\n\n\"{text.strip()}\""
+                }
             ],
             temperature=0.5,
-            max_tokens=20,
+            max_tokens=20
         )
         return resp.choices[0].message.content.strip()
+
