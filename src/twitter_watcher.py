@@ -1,63 +1,54 @@
 # src/twitter_watcher.py
 
 import os
+import asyncio
+from typing import AsyncGenerator, Dict
 import logging
 import tweepy
-from typing import List
 
 class TwitterWatcher:
     """
-    Стримит твиты сразу нескольких пользователей через v2 Filtered Stream,
-    минимизируя число API-вызовов:
-      - user_ids читаются из окружения, без get_user
-      - правило создаётся только один раз, если его ещё нет
+    Периодически опрашивает endpoint users/:id/tweets 
+    вместо Filtered Stream (для free-tier Twitter API v2).
     """
 
-    def __init__(self, bearer_token: str):
+    def __init__(self, bearer_token: str, poll_interval: int = 60):
         self.client = tweepy.Client(bearer_token=bearer_token)
-
-        # Читаем из .env два списка: юзернеймы и их ID
+        # читаем из .env
         raw_users = os.getenv("WATCH_TWITTER_USERS", "")
         raw_ids   = os.getenv("WATCH_TWITTER_USER_IDS", "")
-        self.usernames: List[str] = [u.strip() for u in raw_users.split(",") if u.strip()]
-        self.user_ids:   List[str] = [i.strip() for i in raw_ids.split(",")   if i.strip()]
-
-        if not self.usernames or not self.user_ids:
-            raise ValueError("Не заданы WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS в .env")
-
+        self.usernames = [u.strip() for u in raw_users.split(",") if u.strip()]
+        self.user_ids   = [i.strip() for i in raw_ids.split(",")   if i.strip()]
         if len(self.usernames) != len(self.user_ids):
-            raise ValueError("Кол-во WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS должно совпадать")
-
-        # Словарь для обратного маппинга author_id → username
+            raise ValueError("WATCH_TWITTER_USERS и WATCH_TWITTER_USER_IDS должны быть одинаковой длины")
         self.id_to_username = dict(zip(self.user_ids, self.usernames))
+        # словарь для хранения since_id
+        self.since_ids: Dict[str,str] = {uid: None for uid in self.user_ids}
+        self.poll_interval = poll_interval
 
-    def stream_tweets(self):
+    async def stream_tweets(self) -> AsyncGenerator[Dict, None]:
         """
-        Генератор новых твитов.
-        Устанавливает правило «from:id1 OR from:id2 OR …» один раз
-        и затем бесконечно читает из потока.
+        Async-генератор новых твитов.
+        Каждые poll_interval секунд опрашивает get_users_tweets
+        для каждого user_id и выдаёт новые твиты по одному.
         """
-        stream = tweepy.StreamingClient(
-            bearer_token=self.client.bearer_token,
-            wait_on_rate_limit=True
-        )
-
-        # Получаем существующие правила
-        existing = stream.get_rules().data or []
-
-        if not existing:
-            rule_value = " OR ".join(f"from:{uid}" for uid in self.user_ids)
-            stream.add_rules(tweepy.StreamRule(value=rule_value))
-            logging.info(f"Добавлено правило Filtered Stream: {rule_value}")
-        else:
-            # Если правило уже есть, выводим его для отладки
-            vals = [r.value for r in existing]
-            logging.info(f"Существующие правила Filtered Stream: {vals}")
-
-        # Бесконечный стрим
-        for tweet in stream.filter(tweet_fields=["author_id", "id", "text"]):
-            yield {
-                "id": tweet.id,
-                "text": tweet.text,
-                "author_username": self.id_to_username.get(tweet.author_id, str(tweet.author_id))
-            }
+        while True:
+            for uid in self.user_ids:
+                # синхронный вызов API оборачиваем в asyncio.to_thread
+                resp = await asyncio.to_thread(
+                    self.client.get_users_tweets,
+                    uid,
+                    since_id=self.since_ids[uid],
+                    tweet_fields=["author_id","id","text"]
+                )
+                tweets = resp.data or []
+                # если есть новые — сортируем по возрастанию ID, выдаём в правильном порядке
+                tweets.sort(key=lambda t: t.id)
+                for tweet in tweets:
+                    self.since_ids[uid] = tweet.id
+                    yield {
+                        "id": tweet.id,
+                        "text": tweet.text,
+                        "author_username": self.id_to_username[uid]
+                    }
+            await asyncio.sleep(self.poll_interval)
