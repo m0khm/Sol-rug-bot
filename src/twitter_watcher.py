@@ -3,69 +3,55 @@
 import os
 import asyncio
 import logging
-from typing import AsyncGenerator, Dict
-import snscrape.modules.twitter as sntwitter
-from snscrape.base import ScraperException
+from typing import AsyncGenerator
+import feedparser
 
 class TwitterWatcher:
     """
-    Async-генератор твитов нескольких пользователей через snscrape,
-    с fallback на SearchScraper вместо UserScraper.
+    Async-генератор новых твитов через Nitter-RSS.
+    Каждые poll_interval секунд дергаем RSS и отдаём новые entry.
     """
 
-    def __init__(self, poll_interval: int = 60, max_fetch: int = 20):
+    def __init__(self, poll_interval: int = 60):
         raw = os.getenv("WATCH_TWITTER_USERS", "")
         self.usernames = [u.strip() for u in raw.split(",") if u.strip()]
         if not self.usernames:
             raise ValueError("Задайте WATCH_TWITTER_USERS в .env")
 
         self.poll_interval = poll_interval
-        self.max_fetch     = max_fetch
-        # для каждого username храним последний обработанный ID
-        self.since_id: Dict[str,int] = {u: 0 for u in self.usernames}
+        # для каждого юзера храним последний обработанный guid/id
+        self.seen_ids = {u: set() for u in self.usernames}
 
     async def stream_tweets(self) -> AsyncGenerator[dict, None]:
-        """
-        Каждые poll_interval секунд пытаемся достать новые твиты через SearchScraper.
-        При ошибке — логируем и переходим к следующему циклу.
-        """
         while True:
             for username in self.usernames:
                 try:
-                    tweets = await asyncio.to_thread(self._fetch_new, username)
-                except ScraperException as e:
-                    logging.error(f"snscrape error for {username}: {e}")
+                    new_items = await asyncio.to_thread(self._fetch_rss, username)
+                except Exception as e:
+                    logging.error(f"RSS error for {username}: {e}")
                     continue
 
-                for t in tweets:
+                for entry in new_items:
                     yield {
-                        "id":               t.id,
-                        "text":             t.content,
+                        "id":               entry.id,       # например, URL поста
+                        "text":             entry.title,    # заголовок — текст твита
                         "author_username":  username
                     }
 
             await asyncio.sleep(self.poll_interval)
 
-    def _fetch_new(self, username: str):
-        """
-        Достаём твиты через TwitterSearchScraper("from:username"),
-        фильтруем по since_id, сортируем от старых к новым.
-        """
-        query = f"from:{username}"
-        scraper = sntwitter.TwitterSearchScraper(query)
-        new_items = []
+    def _fetch_rss(self, username: str):
+        url = f"https://nitter.net/{username}/rss"
+        feed = feedparser.parse(url)
+        if feed.bozo:
+            raise RuntimeError(f"Invalid RSS for {username}: {feed.bozo_exception}")
 
-        for i, tweet in enumerate(scraper.get_items()):
-            if i >= self.max_fetch:
-                break
-            if tweet.id <= self.since_id[username]:
-                continue
-            new_items.append(tweet)
+        new_entries = []
+        for entry in feed.entries:
+            if entry.id not in self.seen_ids[username]:
+                new_entries.append(entry)
+                self.seen_ids[username].add(entry.id)
 
-        if not new_items:
-            return []
-
-        # обновляем since_id
-        self.since_id[username] = max(t.id for t in new_items)
-        # возвращаем в хронологическом порядке
-        return sorted(new_items, key=lambda t: t.id)
+        # Опционально: сортировать по дате, если нужно
+        new_entries.sort(key=lambda e: e.published_parsed)
+        return new_entries
