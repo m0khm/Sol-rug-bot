@@ -196,16 +196,17 @@
       ]
     },
     {
-      "name": "SetParamsEvent",
-      "fields": [
-        { "name": "feeRecipient", "type": "publicKey", "index”: false },
-        { "name”: "initialVirtualTokenReserves", "type”: "u64", "index”: false },
-        { "name”: "initialVirtualSolReserves", "type”: "u64", "index”: false },
-        { "name”: "initialRealTokenReserves", "type”: "u64", "index”: false },
-        { "name”: "tokenTotalSupply", "type”: "u64", "index”: false },
-        { "name”: "feeBasisPoints", "type”: "u64", "index”: false }
-      ]
-    }
+  "name": "SetParamsEvent",
+  "fields": [
+    { "name": "feeRecipient",               "type": "publicKey", "index": false },
+    { "name": "initialVirtualTokenReserves","type": "u64",       "index": false },
+    { "name": "initialVirtualSolReserves",  "type": "u64",       "index": false },
+    { "name": "initialRealTokenReserves",   "type": "u64",       "index": false },
+    { "name": "tokenTotalSupply",           "type": "u64",       "index": false },
+    { "name": "feeBasisPoints",             "type": "u64",       "index": false }
+  ]
+}
+
   ],
   "errors": [
     { "code": 6000, "name": "NotAuthorized", "msg": "The given account is not authorized to execute this instruction." },
