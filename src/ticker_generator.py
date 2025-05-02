@@ -1,3 +1,4 @@
+#src/ticker_generator.py
 import re
 
 VOWELS = set("aeiouAEIOU")
