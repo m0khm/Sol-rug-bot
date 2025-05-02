@@ -1,7 +1,5 @@
 # src/pump_client.py
 
-# src/pump_client.py
-
 import os
 import json
 from pathlib import Path
