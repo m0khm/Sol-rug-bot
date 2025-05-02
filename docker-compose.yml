@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  solana-tokenbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solana-auto-tokenbot:latest
+    container_name: solana-auto-tokenbot
+    env_file:
+      - .env
+    # Монтируем ваш файл с приватным ключом в контейнер
+    # Пусть в .env указан абсолютный путь, например SOLANA_KEYPAIR_PATH=/home/user/.config/solana/id.json
+    volumes:
+      - ${SOLANA_KEYPAIR_PATH}:${SOLANA_KEYPAIR_PATH}:ro
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
