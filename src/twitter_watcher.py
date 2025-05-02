@@ -23,7 +23,8 @@ class TwitterWatcher:
             os.getenv("TWITTER_ACCESS_TOKEN"),
             os.getenv("TWITTER_ACCESS_SECRET"),
         )
-        self.api = API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
+        # Убрали устаревший wait_on_rate_limit_notify
+        self.api = API(auth, wait_on_rate_limit=True)
 
         # 2) Список имён и их ID (screen_name и numeric ID)
         raw_users = os.getenv("WATCH_TWITTER_USERS", "")
@@ -62,7 +63,6 @@ class TwitterWatcher:
 
                 # reverse, чтобы выдавать от старых к свежим
                 for status in reversed(timeline):
-                    # full_text для твитов длиной >280 символов
                     text = getattr(status, "full_text", status.text)
                     self.since_ids[uid] = max(self.since_ids[uid] or 0, status.id)
                     yield {
