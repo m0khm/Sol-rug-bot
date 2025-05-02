@@ -52,31 +52,20 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     load_dotenv()
 
-    # Инициализация компонентов
-    watcher    = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"))
+    # Интервал опроса в секундах (по умолчанию 60)
+    interval = int(os.getenv("TWEET_POLL_INTERVAL", "60"))
+
+    watcher    = TwitterWatcher(os.getenv("TWITTER_BEARER_TOKEN"), poll_interval=interval)
     summarizer = AISummarizer(os.getenv("OPENAI_API_KEY"))
     img_gen    = AIImageGenerator(os.getenv("OPENAI_API_KEY"))
     pump       = PumpClient()
+
     chat_ids   = [cid.strip() for cid in os.getenv("TELEGRAM_CHAT_IDS","").split(",") if cid.strip()]
     notifier   = TelegramNotifier(os.getenv("TELEGRAM_BOT_TOKEN"), chat_ids)
 
-    # Получим loop для планирования задач из другого потока
-    loop = asyncio.get_running_loop()
-
-    # Функция для синхронного потока твитов
-    def stream_worker():
-        for tweet in watcher.stream_tweets():
-            # каждое новое сообщение планируем в asyncio
-            loop.call_soon_threadsafe(
-                asyncio.create_task,
-                handle_tweet(tweet, summarizer, img_gen, pump, notifier)
-            )
-
-    # Запускаем stream_worker в отдельном потоке, не блокируя async loop
-    asyncio.create_task(asyncio.to_thread(stream_worker))
-
-    # Ждём вечность, чтобы процесс не завершился
-    await asyncio.Event().wait()
+    # Асинхронно обрабатываем поступающие из poll_tweets твиты
+    async for tweet in watcher.stream_tweets():
+        asyncio.create_task(handle_tweet(tweet, summarizer, img_gen, pump, notifier))
 
 if __name__ == "__main__":
     asyncio.run(main())
