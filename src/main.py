@@ -7,7 +7,7 @@ import json
 import base64
 
 from dotenv import load_dotenv
-+from twitter_watcher import TwitterWatcher  # snscrape-based
+from twitter_watcher import TwitterWatcher  # snscrape-based
 from ai_summarizer import AISummarizer
 from ai_image_generator import AIImageGenerator
 from ticker_generator import generate_ticker
