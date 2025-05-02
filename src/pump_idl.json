@@ -1,2 +1,29 @@
-curl -L https://gist.githubusercontent.com/rubpy/d8db121af1224a0e4a57f3a7a090f629/raw/pump_idl.json \
-     -o src/pump_idl.json
+{
+  "version": "0.1.0",
+  "name": "pump",
+  "instructions": [
+    {
+      "name": "create",
+      "accounts": [
+        {"name": "mint",               "isMut": true,  "isSigner": true},
+        {"name": "associatedBondingCurve", "isMut": true,  "isSigner": false},
+        {"name": "metadata",           "isMut": true,  "isSigner": false},
+        {"name": "user",               "isMut": false, "isSigner": true}
+      ],
+      "args": [
+        {"name": "name",   "type": "string"},
+        {"name": "symbol", "type": "string"},
+        {"name": "uri",    "type": "string"}
+      ]
+    },
+    // … остальные инструкции …
+  ],
+  "accounts": [
+    {
+      "name": "BondingCurve",
+      "type": { "kind": "struct", "fields": [ /* … */ ] }
+    }
+  ],
+  "metadata": { /* … Metaplex metadata PDA seeds … */ },
+  "errors": [ /* … */ ]
+}
