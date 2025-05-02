@@ -3,14 +3,14 @@
 import os
 import asyncio
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict
 import snscrape.modules.twitter as sntwitter
 from snscrape.base import ScraperException
 
 class TwitterWatcher:
     """
-    Async-генератор твитов нескольких пользователей через snscrape.
-    При любых ошибках скрейпинга — логируем и ждем следующего poll_interval.
+    Async-генератор твитов нескольких пользователей через snscrape,
+    с fallback на SearchScraper вместо UserScraper.
     """
 
     def __init__(self, poll_interval: int = 60, max_fetch: int = 20):
@@ -21,13 +21,13 @@ class TwitterWatcher:
 
         self.poll_interval = poll_interval
         self.max_fetch     = max_fetch
-        # для каждого username хранится последний обработанный ID
-        self.since_id = {u: 0 for u in self.usernames}
+        # для каждого username храним последний обработанный ID
+        self.since_id: Dict[str,int] = {u: 0 for u in self.usernames}
 
     async def stream_tweets(self) -> AsyncGenerator[dict, None]:
         """
-        Каждые poll_interval секунд сканим твиты пользователя,
-        но если snscrape упал — просто пропускаем и ждём следующего цикла.
+        Каждые poll_interval секунд пытаемся достать новые твиты через SearchScraper.
+        При ошибке — логируем и переходим к следующему циклу.
         """
         while True:
             for username in self.usernames:
@@ -35,10 +35,8 @@ class TwitterWatcher:
                     tweets = await asyncio.to_thread(self._fetch_new, username)
                 except ScraperException as e:
                     logging.error(f"snscrape error for {username}: {e}")
-                    # не падаем, переходим к следующему
                     continue
 
-                # отдаём новые твиты в порядке старше→свежие
                 for t in tweets:
                     yield {
                         "id":               t.id,
@@ -50,21 +48,24 @@ class TwitterWatcher:
 
     def _fetch_new(self, username: str):
         """
-        Возвращает список новых tweet-объектов, сортированных по id.
+        Достаём твиты через TwitterSearchScraper("from:username"),
+        фильтруем по since_id, сортируем от старых к новым.
         """
-        scraper = sntwitter.TwitterUserScraper(username)
-        items = []
+        query = f"from:{username}"
+        scraper = sntwitter.TwitterSearchScraper(query)
+        new_items = []
+
         for i, tweet in enumerate(scraper.get_items()):
             if i >= self.max_fetch:
                 break
             if tweet.id <= self.since_id[username]:
                 continue
-            items.append(tweet)
+            new_items.append(tweet)
 
-        if not items:
+        if not new_items:
             return []
 
-        # обновляем since_id до максимального
-        self.since_id[username] = max(t.id for t in items)
-        # возвращаем по возрастанию id
-        return sorted(items, key=lambda t: t.id)
+        # обновляем since_id
+        self.since_id[username] = max(t.id for t in new_items)
+        # возвращаем в хронологическом порядке
+        return sorted(new_items, key=lambda t: t.id)
