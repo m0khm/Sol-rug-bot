@@ -37,8 +37,8 @@ class TwitterWatcher:
 
                 for entry in new_entries:
                     yield {
-                        "id":               entry.id,       # здесь обычно URL
-                        "text":             entry.title,    # текст твита
+                        "id":               getattr(entry, "id", entry.link),
+                        "text":             entry.title,
                         "author_username":  username
                     }
 
@@ -47,27 +47,31 @@ class TwitterWatcher:
     def _fetch_rss(self, username: str):
         """
         Возвращает список feedparser.Entry новых твитов для username.
+        Если feed.bozo==True, но есть записи — просто логируем и продолжаем.
+        Если записей нет — кидаем ошибку.
         """
-        # Используем twitrss.me
         url = f"https://twitrss.me/twitter_user_to_rss/?user={username}"
         feed = feedparser.parse(
             url,
             request_headers={"User-Agent": "Mozilla/5.0"}
         )
+
         if feed.bozo:
-            raise RuntimeError(f"Invalid RSS for {username}: {feed.bozo_exception}")
+            logging.warning(f"[RSS bozo] for {username}: {feed.bozo_exception}")
+
+        entries = feed.entries or []
+        if not entries:
+            # действительно пусто — это уже критично
+            raise RuntimeError(f"Empty RSS for {username}")
 
         new_entries = []
-        for entry in feed.entries:
-            # уникальный идентификатор в RSS-ленте
-            # обычно это entry.link или entry.id
+        for entry in entries:
             entry_id = getattr(entry, "id", entry.link)
             if entry_id in self.seen_ids[username]:
                 continue
             self.seen_ids[username].add(entry_id)
             new_entries.append(entry)
 
-        # по дате (старые сначала)
         new_entries.sort(key=lambda e: e.published_parsed)
-        logging.info(f"[DEBUG] RSS fetch for {username}: {len(new_entries)} new")
+        logging.info(f"[RSS fetch for {username}]: {len(new_entries)} new")
         return new_entries
