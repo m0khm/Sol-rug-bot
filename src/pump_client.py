@@ -1,5 +1,7 @@
 # src/pump_client.py
 
+# src/pump_client.py
+
 import os
 import json
 from pathlib import Path
@@ -46,13 +48,15 @@ class PumpClient:
         self.wallet     = Wallet(self.keypair)
         self.provider   = Provider(self.connection, self.wallet)
 
+        # Читаем IDL как текст
         idl_path = Path("src/pump_idl.json")
-        idl_dict = json.loads(idl_path.read_text())
-        idl = Idl.from_json(idl_dict)
+        raw_idl = idl_path.read_text()                  # <-- вместо json.loads
+        idl = Idl.from_json(raw_idl)                    # <-- передаём строку
         self.program = Program(idl, self.PROGRAM_ID, self.provider)
 
     async def create_token(self, name: str, symbol: str, uri: str) -> dict:
         mint_kp = Keypair()
+
         metadata_pda, _ = PublicKey.find_program_address(
             [self.METADATA_SEED, bytes(self.MPL_TOKEN_METADATA), bytes(mint_kp.public_key)],
             self.MPL_TOKEN_METADATA
