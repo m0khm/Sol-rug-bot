@@ -17,82 +17,64 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def main():
-    # Загружаем переменные из .env
+    # 1) Загружаем .env
     load_dotenv()
 
-    # Никнейм Twitter (без @)
+    # 2) Читаем имя пользователя из env
     twitter_username = os.getenv('TWITTER_USERNAME')
     if not twitter_username:
         logger.error("Переменная окружения TWITTER_USERNAME не задана")
         return
 
-    # Интервал опроса твитов (секунды)
-    poll_interval = int(os.getenv('POLL_INTERVAL', '30'))
+    # 3) Интервал опроса
+    poll_interval = int(os.getenv('TWEET_POLL_INTERVAL', '60'))
 
-    # Ключ OpenAI
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
+    # 4) OpenAI
+    openai_key = os.getenv('OPENAI_API_KEY')
+    if not openai_key:
         logger.error("Переменная окружения OPENAI_API_KEY не задана")
         return
 
-    # Настройки Solana / Pump.fun
-    solana_rpc = os.getenv('SOLANA_RPC_ENDPOINT')
-    pump_program_id = os.getenv('PUMP_PROGRAM_ID')
-    payer_keypair = os.getenv('PAYER_KEYPAIR_PATH')
+    # 5) Solana
+    solana_rpc    = os.getenv('SOLANA_RPC_ENDPOINT')
+    secret_key    = os.getenv('SOLANA_SECRET_KEY')
+    # Pump.fun program ID по-хорошему тоже в env, но у вас, видимо, он уже прописан в коде
 
-    # Telegram
-    telegram_token = os.getenv('TELEGRAM_TOKEN')
-    telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    # 6) Telegram
+    telegram_token   = os.getenv('TELEGRAM_BOT_TOKEN')
+    telegram_chats   = os.getenv('TELEGRAM_CHAT_IDS', '').split(',')
+    if not telegram_token or not telegram_chats:
+        logger.error("Telegram не сконфигурирован (BOT_TOKEN/CHAT_IDS)")
+        return
 
-    # Инициализируем все компоненты
-    watcher = TwitterWatcher(username=twitter_username, poll_interval=poll_interval)
-    summarizer = AISummarizer(api_key=openai_api_key)
-    image_generator = AIImageGenerator(api_key=openai_api_key)
+    # === Инициализация компонентов ===
+
+    # Тут — главное изменение: передаём username как позиционный аргумент
+    watcher    = TwitterWatcher(username=twitter_username, poll_interval=poll_interval)
+    summarizer = AISummarizer(api_key=openai_key)
+    img_gen    = AIImageGenerator(api_key=openai_key)
     ticker_gen = TickerGenerator()
-    pump_client = PumpClient(
-        rpc_endpoint=solana_rpc,
-        program_id=pump_program_id,
-        payer_keypair_path=payer_keypair
-    )
-    notifier = TelegramNotifier(token=telegram_token, chat_id=telegram_chat_id)
+    pump       = PumpClient(rpc_endpoint=solana_rpc, payer_keypair_path=secret_key)
+    notifier   = TelegramNotifier(token=telegram_token, chat_ids=telegram_chats)
 
-    # Основной цикл: ждём новых твитов, обрабатываем их
+    # === Основной loop ===
     async for tweet in watcher.watch():
         logger.info(f"Новый твит @{twitter_username}: {tweet.id}")
-
-        # 1) Суммируем
-        summary = await summarizer.summarize(tweet.content)
-
-        # 2) Генерируем иллюстрацию
-        image_url = await image_generator.generate_image(summary)
-
-        # 3) Генерим тикер
-        ticker = ticker_gen.generate()
-
-        # 4) Минтим токен через Pump.fun
-        mint_address = await pump_client.mint_token(
-            name=ticker,
-            symbol=ticker,
-            uri=image_url,
-            metadata={
-                "description": summary,
-                "tweet_url": f"https://twitter.com/{twitter_username}/status/{tweet.id}"
-            }
+        summary   = await summarizer.summarize(tweet.content)
+        img_url   = await img_gen.generate_image(summary)
+        ticker    = ticker_gen.generate()
+        mint_addr = await pump.mint_token(
+            name=ticker, symbol=ticker, uri=img_url,
+            metadata={"description": summary, "tweet_url": tweet.url}
         )
-
-        # 5) Уведомляем в Telegram
         await notifier.send_message(
-            text=(
-                f"Minted token *{ticker}* for tweet [{tweet.id}]"
-                f"(https://twitter.com/{twitter_username}/status/{tweet.id})\n\n"
-                f"{summary}"
-            ),
-            token_address=mint_address,
-            image_url=image_url
+            text=f"Minted *{ticker}* for [{tweet.id}]({tweet.url})\n\n{summary}",
+            token_address=mint_addr,
+            image_url=img_url
         )
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Остановка бота по SIGINT")
+        logger.info("Остановка бота")
