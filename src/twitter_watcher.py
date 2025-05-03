@@ -2,19 +2,30 @@
 
 import asyncio
 import logging
+import importlib
+from importlib.machinery import FileFinder
+
+# Патчим FileFinder для snscrape (Python 3.12 убрал find_module)
+def _find_module(self, fullname, path=None):
+    spec = self.find_spec(fullname, path)
+    return spec.loader if spec else None
+
+# Если у FileFinder нет find_module — добавляем
+if not hasattr(FileFinder, 'find_module'):
+    FileFinder.find_module = _find_module
+
 from snscrape.modules.twitter import TwitterSearchScraper
 
 logger = logging.getLogger(__name__)
 
 class TwitterWatcher:
     """
-    Асинхронный «наблюдатель» твитов указанного пользователя,
-    реализованный на базе snscrape. При появлении новых твитов
-    выдаёт их по одному в порядке хронологии.
+    Асинхронный «наблюдатель» твитов указанного пользователя
+    через snscrape (без tweepy).
     """
     def __init__(self, username: str, poll_interval: int = 30):
         """
-        :param username: никнейм пользователя без "@"
+        :param username: никнейм без "@"
         :param poll_interval: интервал опроса в секундах
         """
         self.username = username
@@ -23,30 +34,26 @@ class TwitterWatcher:
 
     async def watch(self):
         """
-        Async-генератор, выдающий новые твиты.
-        Использует asyncio.to_thread для вызова синхронного get_items().
+        Async-генератор новых твитов.
         """
         query = f"from:{self.username}"
         scraper = TwitterSearchScraper(query)
 
         while True:
             try:
-                # в фоне получаем список твитов
+                # в отдельном потоке приводим итератор к списку
                 tweets = await asyncio.to_thread(lambda: list(scraper.get_items()))
-                new = []
-                for t in tweets:
-                    if self.since_id is None or t.id > self.since_id:
-                        new.append(t)
+                # фильтруем только новые
+                new = [t for t in tweets if self.since_id is None or t.id > self.since_id]
 
                 if new:
-                    # обновляем since_id на самый свежий
+                    # запоминаем самый свежий id
                     self.since_id = max(t.id for t in new)
-                    # сортируем по дате появления и отдаем по одному
+                    # отдаём по одному в хронологическом порядке
                     for t in sorted(new, key=lambda x: x.date):
                         yield t
 
             except Exception as e:
-                logger.exception("Ошибка при сборе твитов %s: %s", self.username, e)
+                logger.exception("Ошибка сбора твитов %s: %s", self.username, e)
 
-            # ждём перед следующим запросом
             await asyncio.sleep(self.poll_interval)
