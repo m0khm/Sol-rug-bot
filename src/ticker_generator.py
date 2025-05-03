@@ -1,14 +1,24 @@
-#src/ticker_generator.py
-import re
+# src/ticker_generator.py
 
-VOWELS = set("aeiouAEIOU")
+import random
+import string
 
-def generate_ticker(summary: str) -> str:
-    words = re.findall(r"\w+", summary)
-    if len(words) > 1:
-        ticker = "".join(w[0] for w in words)[:3]
-    else:
-        cons = [c for c in words[0] if c not in VOWELS]
-        ticker = "".join(cons)[:3]
-    return ticker.upper()
+class TickerGenerator:
+    """
+    Генератор случайного тикера из букв A–Z длины length.
+    По умолчанию длина = 3 (SPL-токены обычно 3–5 символов).
+    """
 
+    def __init__(self, length: int = 3):
+        """
+        :param length: длина генерируемого тикера
+        """
+        if length < 1:
+            raise ValueError("length must be >= 1")
+        self.length = length
+
+    def generate(self) -> str:
+        """
+        Возвращает новый случайный тикер.
+        """
+        return ''.join(random.choices(string.ascii_uppercase, k=self.length))
