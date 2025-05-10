@@ -1,21 +1,30 @@
 version: '3.8'
-
 services:
-  solana-tokenbot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: solana-auto-tokenbot:latest
-    container_name: solana-auto-tokenbot
-    env_file:
-      - .env
-    # Монтируем ваш файл с приватным ключом в контейнер
-    # Пусть в .env указан абсолютный путь, например SOLANA_KEYPAIR_PATH=/home/user/.config/solana/id.json
+  solana-auto-tokenbot:
+    build: .
     volumes:
-      - ${SOLANA_KEYPAIR_PATH}:${SOLANA_KEYPAIR_PATH}:ro
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      # Монтируем ваш локальный профиль Chrome в контейнер
+      - ./selenium_profile:/data/selenium_profile
+      # Опционально: если у вас есть локальная папка images/
+      - ./images:/app/images
+    environment:
+      # Selenium
+      CHROME_PROFILE_DIR: /data/selenium_profile
+      CHROMEDRIVER_PATH: /usr/local/bin/chromedriver
+      PUMP_HEADLESS: "false"
+      # Параметры токена
+      INITIAL_PRICE_USD: "0.01"
+      BONDING_FEE_PCT: "1.0"
+      CURVE_EXPONENT: "1.0"
+      INITIAL_RESERVE_SOL: "0.0"
+      # OpenAI
+      OPENAI_API_KEY: "<ваш OpenAI API ключ>"
+      # Twitter
+      TWITTER_USERNAME: "<ваш Twitter username>"
+      TWEET_POLL_INTERVAL: "60"
+      # Telegram
+      TELEGRAM_BOT_TOKEN: "<ваш Telegram bot token>"
+      TELEGRAM_CHAT_IDS: "123456789,987654321"
+    # Если нужен доступ к Xvfb или реальному дисплею, можно добавить:
+    # devices:
+    #   - /dev/shm:/dev/shm
