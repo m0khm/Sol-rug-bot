@@ -22,21 +22,20 @@
 ## Структура репозитория
 
 ```
-.
-├── .env.example           # Шаблон переменных окружения
-├── Dockerfile             # Описание образа для контейнера
-├── docker-compose.yml     # Сборка и запуск через Docker Compose
-├── requirements.txt       # Python-зависимости
-├── README.md              # Документация проекта
-└── src
-    ├── main.py                  # Точка входа, организует асинхронный loop
-    ├── twitter_watcher.py       # Асинхронный стриминг твитов через Tweepy
-    ├── ai_summarizer.py         # Сжатие твита до ключевых слов (o4-mini)
-    ├── ai_image_generator.py    # Генерация изображений DALL·E
-    ├── ticker_generator.py      # Логика создания трёхбуквенного тикера
-    ├── pump_client.py           # On-chain вызовы Anchor-программы Pump.fun
-    ├── telegram_notifier.py     # Рассылка сообщений в Telegram
-    └── pump_idl.json            # IDL программы Pump.fun (Anchor interface)
+home/ubuntu/solana_token_bot/
+├── .env.example        # Example environment file
+├── .env                # Your actual environment variables (MUST BE KEPT SECRET)
+├── requirements.txt    # Python dependencies
+├── README.md           # This documentation file
+├── todo.md             # Task checklist used during development
+├── images/             # Directory for temporarily storing generated images before upload
+└── src/
+    ├── main.py             # Main orchestrator script for the bot
+    ├── twitter_watcher.py  # Module for monitoring Twitter
+    ├── ai_processor.py     # Module for OpenAI summarization and image generation
+    ├── ticker_generator.py # Module for generating token tickers and names
+    ├── selenium_pump_bot.py# Module for interacting with Pump.fun via Selenium
+    └── telegram_notifier.py# Module for sending Telegram notifications
 ```
 
 ---
