@@ -1,4 +1,4 @@
-snscrape==0.7.0
+snscrape>=0.7.0
 openai==0.28.1
 # For OpenAI v1.x.x, the usage would be different, sticking to 0.28.1 for current AIProcessor implementation
 # If user wants to upgrade openai, AIProcessor needs to be updated.
